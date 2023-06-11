@@ -1,139 +1,397 @@
+--//Variables
 local Player = game.Players.LocalPlayer;
-local Run = Player.PlayerGui.Run;
+local Character = Player.Character:WaitForChild("Playermodel"):WaitForChild("Charmodel");
+local HRP = Character:WaitForChild("HumanoidRootPart");
+local ToggleKey = Enum.KeyCode.X
 
-repeat task.wait() until game:IsLoaded();
-repeat task.wait() until not Player.PlayerGui:FindFirstChild("Intro");
-if not game.Workspace:FindFirstChild("Dungeon") then
-repeat task.wait() until Run.Runsummary.Main.Close.Visible == true
-task.wait(10);
+if game.Workspace:FindFirstChild("Live") then
+return
 end
 
 --//Tables
 local Settings = {};
+local Used = {};
+local RarityTable = {
+    ["Legendary"] = 984;
+    ["Alpha"] = 994;
+    ["Omega"] = 999;
+    ["Core"] = 1000;
+};
 
---//Services
-local HttpService = game:GetService("HttpService");
+--//Cooldowns
+local lastAttack = tick();
+local lastSell = tick();
 
---//Functions
-function loadSettings()
-    if isfile("NK_Settings.json") then
-    Settings = HttpService:JSONDecode(readfile("NK_Settings.json"));
-    end
-end
+--//Globals
+_G.Autofarm = true;
 
-function saveSettings()
-    local savedTable = HttpService:JSONEncode(Settings);
-
-    writefile("NK_Settings.json", savedTable);
-    Settings = HttpService:JSONDecode(readfile("NK_Settings.json"));
-end
-
-function Press(Path)
-    for i,v in pairs(getconnections(Path)) do
-        v:Function();
-    end
-end
-
---///Setup
-loadSettings();
-
-if Settings.Region == nil then
-    error("No Region Specified");
-end
-
-if Settings.Difficulty == nil then
-    error("No Difficulty Specified");
-end
-
-if Settings.Special == nil then
-    error("Please specify Special");
-end
-
-if Settings.NextRegion == nil or Settings.AutoSell == nil then
-    local Function = Instance.new("BindableFunction")
-Function.OnInvoke = CallBack
-
-game:GetService("StarterGui"):SetCore("SendNotification", {
-Title = "Outdated",
-Text = "Please get the updated script from the discord or v3rmillion",
-Icon = "",
-Duration = 10,
-Callback = Function;
-})
-end
-
-if Settings.LeaveAtRegion == nil then
-    local Function = Instance.new("BindableFunction")
-Function.OnInvoke = CallBack
-
-game:GetService("StarterGui"):SetCore("SendNotification", {
-Title = "Outdated",
-Text = "LeaveAtRegion property not specificed, Might be Outdated, Check discord.",
-Icon = "",
-Duration = 10,
-Callback = Function;
-})
-end
-
-if Settings.RarityFilter == nil or type(Settings.RarityFilter) ~= "string" then
-    local Function = Instance.new("BindableFunction")
-Function.OnInvoke = CallBack
-
-game:GetService("StarterGui"):SetCore("SendNotification", {
-Title = "Outdated",
-Text = "Please get the updated script from the discord or v3rmillion",
-Icon = "",
-Duration = 10,
-Callback = Function;
-})
-return
-end
-
-if game.Workspace:FindFirstChild("Dungeon") and Settings.NextRegion == true and not game.Workspace:FindFirstChild("Live") then
-    loadstring(game:HttpGet("https://pastebin.com/raw/Tw73r4hP"))();
+if _G.Autofarm == false then
     return
 end
 
+--//Services
+local UIS = game:GetService("UserInputService");
+local VIM =  game:GetService("VirtualInputManager");
+local Debris = game:GetService("Debris");
+local HttpService = game:GetService("HttpService");
 
-local MT = getrawmetatable(game);
-setreadonly(MT, false);
+--//Setup
+local Live = Instance.new("Folder");
+Live.Name = "Live";
+Live.Parent = game.Workspace;
 
-local Old = MT.__namecall;
+local Explosions = Instance.new("Folder");
+Explosions.Name = "Explosions";
+Explosions.Parent = game.Workspace;
 
-MT.__namecall = newcclosure(function(self, ...)
-    local Method = getnamecallmethod();
-    local Args = {...};
+if isfile("NK_Settings.json") then
+    Settings = HttpService:JSONDecode(readfile("NK_Settings.json"));
+end
 
-    if Method == "FireServer" and self.Name == "Regiontrig" and Args[1] == "Lobby" then
-        Args[2]["Region"] = Settings.Region;
-        Args[2]["Difflevel"] = Settings.Difficulty;
-        Args[2]["Payment"] = "None";
-		Args[2]["Special"] = Settings.Special;
+--//Toggle
+UIS.InputBegan:Connect(function(Key)
+    if Key.KeyCode == ToggleKey then
+        _G.Autofarm = not _G.Autofarm;
+    end
+end)
+
+task.wait(7);
+
+--hookfunction(print, function() return end)
+--hookfunction(warn, function() return end)
+
+--//Functions
+
+function getClosestMob()
+    local closestMob = nil;
+    local lastDistance = math.huge;
+    lastPart = nil;
+
+    for _, Mob in pairs(Live:GetChildren()) do
+        if Mob:FindFirstChild("Tags") and (Mob:FindFirstChild("Hitbox") or Mob:FindFirstChild("Base") or Mob:FindFirstChild("HumanoidRootPart") or Mob:FindFirstChild("Main")) then
+
+            local canContinue = true;
+
+            if Mob:FindFirstChild("Status") and Mob:FindFirstChild("Status"):FindFirstChild("Debuff_Invincible") and closestMob ~= nil then
+                canContinue = false;
+            end
+
+            if canContinue == true then
+
+            lastPart = Mob:FindFirstChild("Hitbox") or Mob:FindFirstChild("Base") or Mob:FindFirstChild("HumanoidRootPart") or Mob:FindFirstChild("Main")
+
+            local currentDistance = (HRP.Position - lastPart.Position).Magnitude;
+            
+            if closestMob ~= nil and (currentDistance < lastDistance or closestMob:FindFirstChild("Status") and closestMob:FindFirstChild("Status"):FindFirstChild("Debuff_Invincible")) then
+            closestMob = Mob;
+            lastDistance = currentDistance;
+            elseif closestMob == nil then
+                closestMob = Mob;
+                lastDistance = currentDistance;
+            end
+        end
+    end
+end
+
+    if closestMob ~= nil then
+        lastPart = closestMob:FindFirstChild("Hitbox") or closestMob:FindFirstChild("Base") or closestMob:FindFirstChild("HumanoidRootPart") or closestMob:FindFirstChild("Main");
+    end
+    
+    return closestMob, lastPart
+end
+
+function pressKey(Key, Hold)
+    VIM:SendKeyEvent(Hold, Key, false, game);
+end
+
+function checkChests()
+    for _, Chest in pairs(game.Workspace.Dungeon:GetDescendants()) do
+        if (findName(Chest.Name, "chest") or findName(Chest.Name, "_medical") and not findName(Chest.Name, "machine") or findName(Chest.Name, "_ammo") and not findName(Chest.Name, "machine") or findName(Chest.Name, "locker")) and 
+        (Chest:FindFirstChild("Interact") and Chest:FindFirstChild("Interact"):IsA("BasePart") or
+        Chest:FindFirstChild("Chest") and Chest:FindFirstChild("Chest"):IsA("BasePart")) and not Chest:FindFirstChild("Opened") then
+
+            local Part = Chest:FindFirstChild("Interact") or Chest:FindFirstChild("Chest");
+            
+            HRP.CFrame = Part.CFrame;
+
+            local Distance = (HRP.Position - Part.Position).Magnitude;
+
+            repeat task.wait() Distance = (HRP.Position - Part.Position).Magnitude until Distance <= 4
+
+            local Times = findName(Chest.Name, "chest") and 30 or 10
+
+            game.ReplicatedStorage.Ints.Interactcontrol:InvokeServer("Chestopen", Chest);
+
+            local Opened = Instance.new("Folder");
+            Opened.Name = "Opened";
+            Opened.Parent = Chest;
+
+            task.wait(1.47);
+        end
     end
 
-    return Old(self, unpack(Args))
+    return true
+end
+
+function passRoom(Door)
+    local Part = Door:FindFirstChild("Interact") or Door:FindFirstChild("Part")
+    if Part == nil then
+        Part = Door:FindFirstChildWhichIsA("BasePart");
+    end
+    HRP.CFrame = Part.CFrame;
+
+    task.wait();
+    game.ReplicatedStorage.Ints.Regiontrig:FireServer("Door", Door);
+end
+
+function checkRoom()
+    local Empty = false;
+    local Door = nil;
+    
+    for _, v in pairs(game.Workspace.Dungeon:GetDescendants()) do
+        if findName(v.Name, "shrine") and v.Name ~= "Shrine" and v:FindFirstChildWhichIsA("BasePart") and v:FindFirstChildWhichIsA("BasePart").Name == "Interact" then
+                HRP.CFrame = v:FindFirstChildWhichIsA("BasePart").CFrame;
+                task.wait(0.1);
+                v:FindFirstChildWhichIsA("BasePart").Purchase:FireServer();
+                task.wait(1);
+                v:Destroy();
+            end
+
+            if v.Name == "Midnight_Shrineend" and v:FindFirstChild("Interact") then
+                HRP.CFrame = v:FindFirstChild("Interact").CFrame;
+                task.wait(0.1);
+                v:FindFirstChild("Interact").Purchase:FireServer();
+                task.wait(20);
+                v:Destroy();
+            end
+            
+        if v.Name == "Nextroomind" and v.Enabled == true then
+            Empty = true;
+            Door = v.Parent;
+        end
+    end
+
+    return Empty, Door
+end
+
+function collectBundles()
+    for _, Bundle in pairs(Player.Character:GetChildren()) do
+        if Bundle.Name == "Pickup" and Bundle:FindFirstChild("Pickupbase") then
+            Bundle.Pickupbase.CFrame = HRP.CFrame
+        end
+    end
+end
+
+function getYLevel()
+    local Y = 1.7;
+    if Explosions:FindFirstChild("ExplodingBarrel") then
+        Y = 40;
+    end
+
+    return Y
+end
+
+function startFarm()
+
+    collectBundles();
+    local closestMob, Part = getClosestMob();
+
+    if closestMob ~= nil then
+        local Y = 0;
+    HRP.CFrame = Part.CFrame * CFrame.new(0, Y, 3);
+    if findName(closestMob.Name, "heart") and closestMob:FindFirstChild("Interact") then
+        closestMob.Interact.Purchase:FireServer();
+        closestMob.Interact.Name = "Used";
+    end
+    Attack(Part);
+    else
+
+        local Y = getYLevel();
+        if Y == 40 then
+            --HRP.CFrame = HRP.CFrame * CFrame.new(0, Y, 0);
+        end
+        local isRoomEmpty, Door = checkRoom();
+
+    if isRoomEmpty == true and Door ~= nil then
+        checkChests();
+            passRoom(Door)
+    end
+
+    end
+
+end
+
+function Attack(lastPart)
+    local Distance = (HRP.Position - lastPart.Position).Magnitude;
+
+    if Distance <= 10 and tick() - lastAttack > 0.1 then
+        Player.Character.Gunmain.Guninput:FireServer(
+            "Melee",
+            tick(),
+            HRP.CFrame,
+            math.random(0, 1000),
+            1,
+            {},
+            false
+        )
+        
+        Player.Character.Gunmain.Guninput:FireServer(
+            "Melee",
+            tick(),
+            HRP.CFrame,
+            math.random(0, 1000),
+            2,
+            {},
+            true
+        )
+        lastAttack = tick();
+    end
+    
+end
+
+function findName(Name, Find)
+    return string.find(string.lower(Name), Find)
+end
+
+function updateMobs()
+    for _, Mob in pairs(game.Workspace.Dungeon:GetDescendants()) do
+        if Mob:FindFirstChild("Tags") and not findName(Mob.Name, "barrel") and not findName(Mob.Name, "propane") and not findName(Mob.Name, "sludge") and not findName(Mob.Name, "cannon") and not findName(Mob.Name, "firepad") and not findName(Mob.Name, "conveyor") and not findName(Mob.Name, "sidepress") and not findName(Mob.Name, "pressfast") then
+            Mob.Parent = Live;
+        elseif findName(Mob.Name, "barrel") then
+            if Mob:FindFirstChild("Explosivedeath") then
+                
+                if #Explosions:GetChildren() <= 3 then
+                local Explosion = Instance.new("Folder");
+                Explosion.Name = "ExplodingBarrel";
+                Explosion.Parent = Explosions;
+                Debris:AddItem(Explosion, 1);
+                end
+
+                task.spawn(function()
+                    task.wait(1)
+                    if Mob and Mob:FindFirstChild("Explosivedeath") then
+                        Mob.Explosivedeath:Destroy();
+                    end
+                end)
+
+            end
+        end
+    end
+end
+
+--//Update
+task.spawn(function()
+    while true do
+        task.spawn(function()
+        updateMobs();
+        end)
+        task.wait(0.17);
+    end
+end)
+
+--//Farm
+task.spawn(function()
+    while true do
+        if _G.Autofarm == true then
+startFarm();
+
+task.spawn(function() -- Autosell
+    if Settings.AutoSell == true and tick() - lastSell > 15 then
+
+        for _,v in pairs(Player.Guns:GetChildren()) do
+            if v:FindFirstChild("Slot") and v.Slot.Value == 0 then
+
+                if Settings.RarityFilter ~= nil and Settings.RarityFilter ~= "" then
+                     if Player.Sessionstats.Guncache:FindFirstChild(v.Name) and Player.Sessionstats.Guncache:FindFirstChild(v.Name).Stats.Tags.Raritynum.Value < RarityTable[Settings.RarityFilter] then
+                game.ReplicatedStorage.Ints.Purchasecontrol:InvokeServer("Sellgun", v)
+                end
+                    end
+
+                    if Settings.RarityFilter == nil or Settings.RarityFilter == "" then
+                        game.ReplicatedStorage.Ints.Purchasecontrol:InvokeServer("Sellgun", v)
+                        end
+            end
+            task.wait(0.1)
+        end
+
+        for _,v in pairs(Player.Gear:GetChildren()) do
+            if v:FindFirstChild("Slot") and v.Slot.Value == 0 then
+
+                if Settings.RarityFilter ~= nil and Settings.RarityFilter ~= "" then
+                     if Player.Sessionstats.Guncache:FindFirstChild(v.Name) and Player.Sessionstats.Guncache:FindFirstChild(v.Name).Stats.Tags.Raritynum.Value < RarityTable[Settings.RarityFilter] then
+                game.ReplicatedStorage.Ints.Purchasecontrol:InvokeServer("Sellgun", v)
+                end
+                    end
+
+                    if Settings.RarityFilter == nil or Settings.RarityFilter == "" then
+                        game.ReplicatedStorage.Ints.Purchasecontrol:InvokeServer("Sellgun", v)
+                        end
+            end
+            task.wait(0.1)
+        end
+        lastSell = tick();
+    end
+end)
+    end
+    task.wait();
+end
+end)
+
+--//Auto Pickup
+game.Workspace.ChildAdded:Connect(function(Child)
+    repeat task.wait()
+    if Child.Name == "Lootbundle" and _G.Autofarm == true then
+                game.ReplicatedStorage.Ints.Interactcontrol:InvokeServer(
+                    "Gunopen",
+                    "Unequip",
+                    Child:GetChildren()[1],
+                    "Gunitem"
+                )
+    end
+until Child == nil
+end)
+
+--//Rejoin
+Player.PlayerGui.Run.Dead.Return.Changed:Connect(function()
+    if Player and Player:FindFirstChild("PlayerGui") and Player.PlayerGui.Run.Dead.Return.Visible == true then
+        task.wait(1.7);
+game.ReplicatedStorage.Ints.Regiontrig:FireServer("Leave");
+    end
+end)
+
+--//Finished Run
+Player.PlayerGui.Run.Runend.Return.Changed:Connect(function()
+    if Player and Player:FindFirstChild("PlayerGui") and Player.PlayerGui.Run.Runend.Return.Visible == true then
+        task.wait(1.7);
+        if Settings.NextRegion == false or game.ReplicatedStorage.World.Dungeondata.Location.Value == "Junction" or (Settings.LeaveAtRegion ~= nil and Settings.LeaveAtRegion ~= "") and game.ReplicatedStorage.World.Dungeondata.Location.Value == Settings.LeaveAtRegion then
+game.ReplicatedStorage.Ints.Regiontrig:FireServer("Leave");
+        else
+            game.ReplicatedStorage.Ints.Regiontrig:FireServer("Votenext");
+        end
+    end
 end)
 
 --//Load Script
-queue_on_teleport([[
+syn.queue_on_teleport([[
     repeat task.wait() until game:IsLoaded();
-
+ 
     local Player = game.Players.LocalPlayer;
-
+ 
+    task.wait(7);
+ 
     repeat task.wait() until not Player.PlayerGui:FindFirstChild("Intro");
-
-    task.wait(1);
-
-    loadstring(game:HttpGet("https://pastebin.com/raw/Tw73r4hP"))();
+ 
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/GoppaMan/ww/main/sus"))();
 ]])
 
-if Run.Runsummary.Visible == true then
-Press(Run.Runsummary.Main.Close.Button.MouseButton1Click);
 task.wait(3);
-end
+local Hitbox = Player.Character.Playermodel.Hitbox;
 
-Press(Player.PlayerGui.Game.Relax.Equip.Subframe.Run.Button.MouseButton1Click);
-task.wait(1.47);
-Press(Run.Runsetup.Setup.Choices.Quickstart.Button.MouseButton1Click);
-task.wait(4);
-game.ReplicatedStorage.Ints.Regiontrig:FireServer("Start", Run.Setup.Lobby.Value);
+task.spawn(function()
+    while true do
+        Hitbox.Parent = nil;
+        task.wait(10);
+        Hitbox.Parent = Player.Character.Playermodel;
+        task.wait(1);
+    end
+end)
