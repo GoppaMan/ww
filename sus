@@ -90,7 +90,7 @@ return
 end
 
 if game.Workspace:FindFirstChild("Dungeon") and Settings.NextRegion == true and not game.Workspace:FindFirstChild("Live") then
-    loadstring(game:HttpGet("https://pastebin.com/raw/Tw73r4hP"))();
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/GoppaMan/ww/main/sus2"))();
     return
 end
 
@@ -124,7 +124,7 @@ syn.queue_on_teleport([[
 
     task.wait(1);
 
-    loadstring(game:HttpGet("https://pastebin.com/raw/Tw73r4hP"))();
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/GoppaMan/ww/main/sus2"))();
 ]])
 
 if Run.Runsummary.Visible == true then
